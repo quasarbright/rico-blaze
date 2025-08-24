@@ -1,6 +1,6 @@
 #lang racket
 
-; usage of logic language to create cpu components
+; usage of HDL to create a CPU
 ; uses designs from https://www.youtube.com/watch?v=I0-izyq6q5s&t=850s
 
 (module+ test (require rackunit))

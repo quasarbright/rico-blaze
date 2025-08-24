@@ -1,6 +1,7 @@
 #lang racket
 
-; frontend language for logic circuit DSL
+; frontend for the HDL
+; A language for building circuits to be run on the simulator.
 
 (module+ test (require rackunit))
 (provide (all-defined-out)
@@ -31,8 +32,10 @@
     #:binding (export x)
     (#%module-app m:module-name x:wire-var ...)
     (~> (m:id x ...)
-        ; this is a macro that compiles (and (not a _) b)
-        ; to (begin (define-wire tmp) (not a tmp) (and tmp b))
+        ; this is a macro that compiles
+        ; (and (not a _) b)
+        ; to
+        ; (begin (define-wire tmp) (not a tmp) (and tmp b))
         #'(module-app m x ...)))
   (nonterminal wire-type
     #:binding-space logic-wire-type
@@ -356,6 +359,7 @@ I don't like that, but alternatives seem like a pain.
 
 ; anf pass
 ; converts (not (and a b _) out) to (begin (define-wire tmp) (and a b tmp) (not tmp out))
+; useful for making tree-shaped circuits where an output of one gate feeds directly into an input of another gate
 (define-dsl-syntax module-app module-macro
   (syntax-parser
     [(_ m arg ...)

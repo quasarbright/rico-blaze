@@ -1,150 +1,7 @@
 #lang racket
 
-; little logic circuit DSL
-; this file contains the runtime and design notes
-
-#|
-
-# design notes
-
-## surface syntax and high level stuff
-
-surface concepts:
-a module is a unit of logic.
-modules can contain other sub-modules.
-modules have wires, which are there interfaces.
-wires can be inputs, outputs, or both.
-data/power flows into and out of modules through wires.
-a wire can connect many modules together. They are not 1-to-1 connectors.
-gates are primitive modules which contain no sub-modules.
-gates have zero or more input wires and one output wire.
-gates run racket code directly to produce a boolean output.
-
-; gates are primitive modules
-(define-gate (and a b)
-  (and a b))
-; the first is the gate name and input names,
-; the body is the racket code to produce the boolean result
-
-(define-gate (not a)
-  (not a))
-
-; modules are composable logical units
-(define-module (nand [a : in] [b : in] [out : out])
-  (define-wire tmp)
-  ; gates take in an implicit extra "argument" for output
-  (and a b tmp)
-  (not tmp out))
-
-; like a redstone repeater
-(define-gate (id a)
-  a)
-
-(define-module (clock [x : inout])
-  (not x x))
-
-; no annotation defaults to inout
-(define-module (clock x)
-  (not x x))
-
-want type checker for in vs out vs inout
-this should error:
-(define-module (foo [in in] [out out])
-  (not out in))
-; error: in: input used as an output
-; error: out: output used as an input
-
-x : t means "x can be used as a t", not "x is a t". idc about "is a".
-
-t := in, out, inout
-
-subtyping: t1 <: t2 means "any t1 can be used as a t2"
-inout <: in
-inout <: out
-t <: t
-
-generally, passed arguments must be subtypes of expected argument types
-specifically:
-supplying an out where an in is expected is an error since the callee module will use it as an input.
-supplying an out where an inout is expected is an error since it may be used as an input in the callee module
-supplying an inout where an out is expected is ok since an inout
-
-define-wire creates an inout. It would make no sense to have an in-only wire. It would be unusable because no output would write to it. I guess you might want to do
-(define-module (true [out out])
-  (define-wire tmp)
-  (not tmp out))
-But there's no need to allow the creation of in-only wires
-
-Types are mostly optional. They can be used to prevent stupid things from happening if desired.
-
-the syntax looks like minikanren/verilog,
-but you want it to run like a reactive programming language.
-
-there needs to be a concept of time if you want latches and stuff,
-but idk how exactly that should work.
-Maybe just 1 "round" of bfs at a time or something.
-kind of like redstone I think.
-
-how will debugging work? fit prints somewhere?
-maybe just expose internal variables as circuit outputs.
-
-Full example:
-(define-input a)
-(define-input b)
-(define-output out)
-(define circ (circuit (and a b out)))
-(set-input! a #t)
-(circuit-run! circ)
-(get-output out)
-(set-input! b #t)
-(circuit-run! circ)
-(get-output out)
-
-a circuit has internal state since there is a concept of time.
-circuit-run! runs circuit until stable. this may not terminate.
-circuit-step! runs circuit for one "tick".
-
-you'll end up wanting clocks too, not sure how those will fit in.
-should be able to choose period of clock. or at least make a clock with different periods.
-should also be able to choose the delay of a module, or at least add bogus delayer modules.
-
-for time, ended up going with a redstone-like cellular automaton approach.
-see runtime design for more details.
-
-## runtime
-
-runtime concepts:
-a gate is a primitive unit of logic.
-a gate has zero or more input ports and one output port.
-a port is an interface for a gate.
-a port is either an input or output port, not both.
-a port can either be powered or not powered.
-a wire connects one output port to one input port.
-data/power flows from output ports to input ports.
-a circuit is a collection of gates and wires.
-
-Options for how to handle time:
-- delay module
-  - primitives have no delay
-  - if you make an infinite loop with no delays, it's your fault and a step will not terminate
-  - stepping the circuit just keeps going in all directions until it hits delays
-  - step starts at each input and each delay from the previous step
-  - kind of annoying, but can make macros around it ig
-- inherent delay
-  - delay on core modules? Or each module boundary?
-  - module boundaries would make delay dependent on internal abstraction structure. Something that should be a refactor could change behavior bc of delay
-  - everything would require more delay/steps. User would have less straightforward control over delay. You could also have delay modules though.
-- global update. like cellular automaton/redstone
-  - globally update all ports every step based on the current state, like a cellular automaton.
-  - do a global update based on the previous step's state, like a cellular automaton.
-  - in the next state, an input will be powered if any of the outputs connected to it are powered in the current state.
-  - in the next state, an output will be powered if its gate outputs true based on its inputs in the current state.
-
-
-going to go with cellular automaton
-ended up changing it a little. outputs immediately power inputs
-
-|#
+; simulator/runtime/backend for the HDL
+; Simulates a logic circuit.
 
 (module+ test (require rackunit))
 (provide
@@ -166,7 +23,9 @@ ended up changing it a little. outputs immediately power inputs
   [circuit->datum (-> circuit? any)]))
 (require racket/match)
 
-; runtime
+; A circuit is a network of logic gates connected by wires as well as some state
+; describing which parts have power flowing.
+; See circuit-step! for semantics.
 
 ; a Circuit is a
 (struct circuit [gates wires [powered-ports #:mutable]])
